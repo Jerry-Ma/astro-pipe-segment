@@ -10,13 +10,10 @@ in dealing with astronomical data (and reduction pipelines)
 
 ##### Table of Contents
 
-[gen_ds9reg.py](#gen_ds9reg.py)
-
-[imsel.sh](#imsel.sh)
-
-[querysdss.py](#querysdss.py)
-
-[sexconv.py](#sexconv.py)
+[gen_ds9reg.py](#gen_ds9reg.py)  
+[imsel.sh](#imsel.sh)  
+[querysdss.py](#querysdss.py)  
+[sexconv.py](#sexconv.py)  
 
 -------------------
 ## gen_ds9reg.py
