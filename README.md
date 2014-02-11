@@ -27,3 +27,24 @@ see more: `imsel.sh -h`
 convert sextractor-like ascii file to plain one. This is useful when
 working with some black-boxed tool which requires a somehow more standard
 tsv format.
+
+## querysdss.py
+
+A command-line interface to the SDSS SAS web portal.
+It takes a varieties of forms (and any possible combination) of
+coordinates, then,
+
+* performs coverage check, and print output as designated format
+* with download directory given (use -d), corresponding fits
+  image will be downloaded.
+
+Required package is missing:
+
+* requests
+* bs4
+
+Solution (need to install pip first):
+
+* pip install requests
+* pip install beautifulsoup4
+
