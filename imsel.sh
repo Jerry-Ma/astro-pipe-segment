@@ -145,8 +145,8 @@ if [[ $coordlist == "-" ]] || [[ -f $coordlist ]]; then
     elif [[ -f $coordlist ]]; then
         IFS=$'\n' read -d '' -r -a lines < $coordlist
     fi
-    deg_regex="^\s*(${regf})\s+([-+]?${regf})"
-    hms_regex="^\s*(${regh})\s+([-+]?${regh})"
+    deg_regex="^[[:space:]]*(${regf})[[:space:]]+([-+]?${regf})"
+    hms_regex="^[[:space:]]*(${regh})[[:space:]]+([-+]?${regh})"
     for ((i=0; i<${#lines[@]}; i++)); do
         if [[ ${lines[$i]} =~ $deg_regex ]]; then
             if [[ $coord_fmt == "hhmmss" ]]; then
@@ -185,13 +185,13 @@ if [[ ${checkerr[*]} ]]; then
     exit 1
 fi
 if [[ $coord_fmt == "degree" ]]; then
-    imsize_regex="RA:\s+(${regf})\s+-\s+(${regf}).+Dec:\s+([-+]?${regf})\s+-\s+([-+]?${regf})"
+    imsize_regex="RA:[[:space:]]+(${regf})[[:space:]]+-[[:space:]]+(${regf}).+Dec:[[:space:]]+([-+]?${regf})[[:space:]]+-[[:space:]]+([-+]?${regf})"
     imsize_par="-rd"
 elif [[ $coord_fmt == "hhmmss" ]]; then
-    imsize_regex="RA:\s+(${regh})\s+-\s+(${regh}).+Dec:\s+([-+]?${regh})\s+-\s+([-+]?${regh})"
+    imsize_regex="RA:[[:space:]]+(${regh})[[:space:]]+-[[:space:]]+(${regh}).+Dec:[[:space:]]+([-+]?${regh})[[:space:]]+-[[:space:]]+([-+]?${regh})"
     imsize_par="-r"
 fi
-sky2xy_regex="->\s+([-+]?${regf})\s+([-+]?${regf})"
+sky2xy_regex="->[[:space:]]+([-+]?${regf})[[:space:]]+([-+]?${regf})"
 for ((i=0; i<${#image[@]}; i++)); do
     range=$($imsize $imsize_par ${image[$i]})
     if [[ $range =~ $imsize_regex ]]; then
@@ -270,7 +270,7 @@ for ((i=0; i<${#ra[@]}; i++)); do
                             -v xmax=$x_max \
                             -v ymax=$y_max \
                             -v colx=$grepcat \
-                            '{if($0!~/^\s*#/){
+                            '{if($0!~/^[[:space:]]*#/){
                                 if($colx>xmin && $colx<xmax && $(colx+1)>ymin && $(colx+1)<ymax){
                                     print $0}}
                               else{
