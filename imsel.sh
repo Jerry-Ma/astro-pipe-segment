@@ -43,6 +43,8 @@ cat <<EOF
      -o <dir>    --out-dir=<dir>
                  Directory to create for outputed cutouts
                  default ./imselcut
+     -d          --dry-run
+                 Print out command list instead of run
 +- script by Z.Ma
 EOF
 }
@@ -57,7 +59,7 @@ detect_bin(){
     fi
 }
 checkerr=()
-optspec=":c:g:ho:v-:"
+optspec=":c:g:hdo:v-:"
 while getopts "$optspec" optchar; do
     case "${optchar}" in
         c)  cutsize="$OPTARG"
@@ -67,6 +69,8 @@ while getopts "$optspec" optchar; do
         h)  print_usage; exit 0
             ;;
         v)  verbose=yes
+            ;;
+        d)  dryrun=yes
             ;;
         o)  outdir="$OPTARG"
             ;;
@@ -95,6 +99,9 @@ while getopts "$optspec" optchar; do
                     ;;
                 verbose)
                     verbose="yes"
+                    ;;
+                dry-run)
+                    dryrun="yes"
                     ;;
                 *)  if [[ $OPTERR == 1 ]]; then
                         checkerr+=("[!] unknown option --${OPTARG}")
@@ -235,8 +242,8 @@ for ((i=0; i<${#ra[@]}; i++)); do
            (( $(bc <<< "$(h2d ${dec[$i]}) > $(h2d ${dec_min[$j]})") == 1 )) && \
            (( $(bc <<< "$(h2d ${dec[$i]}) < $(h2d ${dec_max[$j]})") == 1 ))
         then
-            echo ${imname[$j]}
             if [[ $verbose ]]; then
+                echo ${imname[$j]}
                 printf " |ra    |$strfmt|$strfmt|$strfmt|\n" "${ra_min[$j]}" "$ra" "${ra_max[$j]}" 1>&2
                 printf " |dec   |$strfmt|$strfmt|$strfmt|\n" "${dec_min[$j]}" "$dec" "${dec_max[$j]}" 1>&2
             fi
@@ -260,8 +267,12 @@ for ((i=0; i<${#ra[@]}; i++)); do
                     imnamelong=${imname[$j]}
                     imnamedir=${imnamelong%/*}
                     imnamebase=${imnamelong##*/}
-                    $getfits ${imname[$j]} $x $y $cutsize $cutsize -o "$outdir/cut_$(($i+1))_${imnamebase}"
-                    printf "cutsize(${cutsize}x${cutsize}): $outdir/cut_$(($i+1))_${imnamebase}\n"
+                    if [[ $dryrun ]]; then
+                        echo "getfits" ${imname[$j]} $x $y $cutsize $cutsize -o "$outdir/cut_$(($i+1))_${imnamebase}"
+                    else
+                        $getfits ${imname[$j]} $x $y $cutsize $cutsize -o "$outdir/cut_$(($i+1))_${imnamebase}"
+                        printf "cutsize(${cutsize}x${cutsize}): $outdir/cut_$(($i+1))_${imnamebase}\n"
+                    fi
                     if [[ $grepcat ]]; then
                         catname=${imnamelong%%.*}.cat
                         catnamebase=${catname##*/}
