@@ -43,6 +43,15 @@ cat <<EOF
      -o <dir>    --out-dir=<dir>
                  Directory to create for outputed cutouts
                  default ./imselcut
+     -f <fmt>    --out-fmt=<fmt>
+                 Format string that operates on the coordinate list
+                 to create the prefix of the output cutout filenames.
+                 The format string is evaluated against the entry
+                 of coordinate list, e.g. -f '\$3_\$4_\$5' will
+                 expand to 'a_b_c' if the line is "120.0 -10.0 a b c".
+                 A spectial variable '\$i' will expand to the index
+                 (starting from 1) of the entry.
+                 default is "cut_\$i_"
      -d          --dry-run
                  Print out command list instead of run
 +- script by Z.Ma
@@ -59,7 +68,7 @@ detect_bin(){
     fi
 }
 checkerr=()
-optspec=":c:g:hdo:v-:"
+optspec=":c:g:hdof:v-:"
 while getopts "$optspec" optchar; do
     case "${optchar}" in
         c)  cutsize="$OPTARG"
@@ -74,7 +83,8 @@ while getopts "$optspec" optchar; do
             ;;
         o)  outdir="$OPTARG"
             ;;
-
+        f)  cutoutfmt="$OPTARG"
+            ;;
         -)  case "${OPTARG}" in
                 cut-size)
                     cutsize="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ))
@@ -96,6 +106,12 @@ while getopts "$optspec" optchar; do
                     ;;
                 out-dir=*)
                     outdir="${OPTARG#*=}"
+                    ;;
+                out-fmt)
+                    cutoutfmt="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ))
+                    ;;
+                out-fmt=*)
+                    cutoutfmt="${OPTARG#*=}"
                     ;;
                 verbose)
                     verbose="yes"
@@ -127,6 +143,10 @@ fi
 getfits=$(detect_bin "getfits")
 if [[ ! $getfits ]] && [[ $cutsize ]]; then
     checkerr+=("[!] dependency required: WCSTools getfits")
+fi
+if [[ ! ${cutoutfmt} =~ ^[\-+\$_./{}A-Za-z0-9]*$ ]]; then
+    # do not allow [a-zA-Z]
+    checkerr+=('[!] only [{}-+$_./A-Za-z0-9] are allowed in -f argument')
 fi
 image=()
 while (( "$#" )); do
@@ -191,13 +211,13 @@ if [[ ${checkerr[*]} ]]; then
     done
     exit 1
 fi
-if [[ $coord_fmt == "degree" ]]; then
-    imsize_regex="RA:[[:space:]]+(${regf})[[:space:]]+-[[:space:]]+(${regf}).+Dec:[[:space:]]+([-+]?${regf})[[:space:]]+-[[:space:]]+([-+]?${regf})"
-    imsize_par="-rd"
-elif [[ $coord_fmt == "hhmmss" ]]; then
-    imsize_regex="RA:[[:space:]]+(${regh})[[:space:]]+-[[:space:]]+(${regh}).+Dec:[[:space:]]+([-+]?${regh})[[:space:]]+-[[:space:]]+([-+]?${regh})"
-    imsize_par="-r"
-fi
+
+imsize_regex="RA:[[:space:]]+(${regf})[[:space:]]+-[[:space:]]+(${regf}).+Dec:[[:space:]]+([-+]?${regf})[[:space:]]+-[[:space:]]+([-+]?${regf})"
+imsize_par="-rd"
+
+imsize_regex_xy="([0-9]+)x([0-9]+)[[:space:]]+pix"
+imsize_par_xy="-d"
+
 sky2xy_regex="->[[:space:]]+([-+]?${regf})[[:space:]]+([-+]?${regf})"
 for ((i=0; i<${#image[@]}; i++)); do
     range=$($imsize $imsize_par ${image[$i]})
@@ -207,8 +227,22 @@ for ((i=0; i<${#image[@]}; i++)); do
         ra_max[$i]=${BASH_REMATCH[2]}
         dec_min[$i]=${BASH_REMATCH[3]}
         dec_max[$i]=${BASH_REMATCH[4]}
+        # add imsize x and y
+        range_xy=$($imsize $imsize_par_xy ${image[$i]})
+        if [[ $range_xy =~ $imsize_regex_xy ]]; then
+            xsize[$i]=${BASH_REMATCH[1]}
+            ysize[$i]=${BASH_REMATCH[2]}
+            # echo ${xsize[$i]}, ${ysize[$i]}
+        fi
+        # handle coord wrap
+        # use bc to support older bash
+        if (( $(bc <<< "${ra_min[$i]} > ${ra_max[$i]}") == 1 )); then
+            rawrap="yes"
+        fi
+        imok[$i]='yes'
     else
-        echo "[!] imsize fail: $range" 1>&2
+        echo "[!] imsize fail: ${image[$i]}" 1>&2
+        imok[$i]='no'
     fi
 done
 h2d(){
@@ -229,18 +263,50 @@ h2d(){
         echo $1
     fi
 }
+formatline(){
+    i=$1; shift
+    if [[ ! ${cutoutfmt} ]]; then
+        echo "cut_${i}_"
+    else
+        # quote $i
+        cutoutfmt=$(sed 's/\$\([A-Za-z][A-Za-z0-9]*\)_/${\1}_/g' <<< ${cutoutfmt})
+        out=$(eval "echo ${cutoutfmt}")
+        echo ${out}
+    fi
+}
 for ((i=0; i<${#ra[@]}; i++)); do
     #h2d ${ra[$i]}
     #h2d ${dec[$i]}
     for ((j=0; j<${#image[@]}; j++)); do
-        #h2d ${ra_min[$j]}
-        #h2d ${ra_max[$j]}
-        #h2d ${dec_min[$j]}
-        #h2d ${dec_max[$j]}
-        if (( $(bc <<< "$(h2d ${ra[$i]}) > $(h2d ${ra_min[$j]})") == 1 )) && \
-           (( $(bc <<< "$(h2d ${ra[$i]}) < $(h2d ${ra_max[$j]})") == 1 )) && \
-           (( $(bc <<< "$(h2d ${dec[$i]}) > $(h2d ${dec_min[$j]})") == 1 )) && \
-           (( $(bc <<< "$(h2d ${dec[$i]}) < $(h2d ${dec_max[$j]})") == 1 ))
+        if [[ ${imok[$j]} == 'no' ]]; then
+            # echo "[!] skip ${image[$j]}" 1>&2
+            continue
+        fi
+        # h2d ${ra_min[$j]}
+        # h2d ${ra_max[$j]}
+        # h2d ${dec_min[$j]}
+        # h2d ${dec_max[$j]}
+        _ra=$(h2d ${ra[$i]})
+        if (( $(bc <<< "${_ra} < 0") == 1 )); then
+            _ra=$(bc -l <<< "${_ra} + 360.")
+        fi
+        _dec=$(h2d ${dec[$i]})
+        # handle ra wrap
+        if [[ $rawrap ]]; then
+            if (( $(bc <<< "${_ra} >= ${ra_min[$j]}") == 1 )) || \
+               (( $(bc <<< "${_ra} <= ${ra_max[$j]}") == 1 )); then
+                ra_in="yes"
+            fi
+        else
+            echo ${ra_min[$j]}
+            if (( $(bc <<< "${_ra} >= ${ra_min[$j]}") == 1 )) && \
+               (( $(bc <<< "${_ra} <= ${ra_max[$j]}") == 1 )); then
+                ra_in="yes"
+            fi
+        fi
+        if [[ $ra_in ]] && \
+            (( $(bc <<< "${_dec} >= ${dec_min[$j]}") == 1 )) && \
+            (( $(bc <<< "${_dec} <= ${dec_max[$j]}") == 1 ))
         then
             if [[ $verbose ]]; then
                 echo ${imname[$j]}
@@ -252,6 +318,18 @@ for ((i=0; i<${#ra[@]}; i++)); do
                 if [[ $xy =~ $sky2xy_regex ]]; then
                     x=${BASH_REMATCH[1]}
                     y=${BASH_REMATCH[2]}
+                    if (( $(bc <<< "$x < 1") == 1 )); then
+                        x=1
+                    fi
+                    if (( $(bc <<< "$x > ${xsize[$j]}") == 1 )); then
+                        x=${xsize[$j]}
+                    fi
+                    if (( $(bc <<< "$y < 1") == 1 )); then
+                        y=1
+                    fi
+                    if (( $(bc <<< "$y > ${ysize[$j]}") == 1 )); then
+                        y=${ysize[$j]}
+                    fi
                     x_min=$(bc -l <<< "$x-${cutsize}*0.5")
                     x_max=$(bc -l <<< "$x+${cutsize}*0.5")
                     y_min=$(bc -l <<< "$y-${cutsize}*0.5")
@@ -263,19 +341,25 @@ for ((i=0; i<${#ra[@]}; i++)); do
                     if [[ ! ${outdir} ]]; then
                         outdir="imselcut"
                     fi
-                    mkdir -p "$outdir"
                     imnamelong=${imname[$j]}
                     imnamedir=${imnamelong%/*}
                     imnamebase=${imnamelong##*/}
+                    cutoutnamebase=$(formatline $(($i+1)) ${lines[$i]})
+                    # replace spaces with underscore
+                    cutoutnamebase=${cutoutnamebase// /_}
+                    cutoutname="$outdir/${cutoutnamebase}${imnamebase}"
+                    cutoutdir=${cutoutname%/*}
+                    mkdir -p ${cutoutdir}
                     if [[ $dryrun ]]; then
-                        echo "getfits" ${imname[$j]} $x $y $cutsize $cutsize -o "$outdir/cut_$(($i+1))_${imnamebase}"
+                        echo "getfits" ${imname[$j]} $x $y $cutsize $cutsize -o "${cutoutname}"
                     else
-                        $getfits ${imname[$j]} $x $y $cutsize $cutsize -o "$outdir/cut_$(($i+1))_${imnamebase}"
-                        printf "cutsize(${cutsize}x${cutsize}): $outdir/cut_$(($i+1))_${imnamebase}\n"
+                        $getfits ${imname[$j]} $x $y $cutsize $cutsize -o "${cutoutname}"
+                        printf "cutsize(${cutsize}x${cutsize}): ${cutoutname}\n"
                     fi
                     if [[ $grepcat ]]; then
                         catname=${imnamelong%%.*}.cat
                         catnamebase=${catname##*/}
+                        catoutname="$outdir/${cutoutnamebase}${catnamebase}"
                         awk -v xmin=$x_min \
                             -v ymin=$y_min \
                             -v xmax=$x_max \
@@ -285,8 +369,8 @@ for ((i=0; i<${#ra[@]}; i++)); do
                                 if($colx>xmin && $colx<xmax && $(colx+1)>ymin && $(colx+1)<ymax){
                                     print $0}}
                               else{
-                                print $0}}' $catname > $outdir/cut_$(($i+1))_${catnamebase}
-                        printf "grep catlog: $outdir/cut_$(($i+1))_${catnamebase}\n"
+                                print $0}}' $catname > ${catoutname}
+                        printf "grep catlog: ${catoutname}\n"
                     fi
                 else
                     echo "[!] sky2xy fail: $xy" 1>&2
